@@ -1,0 +1,121 @@
+# 제조 공정 품질 Risk Monitoring
+
+생산라인 데이터로 최종 품질검사 **전에** 불량 위험도를 매기고, 품질 담당자가 위험한 것부터 확인할 수 있게 하는 시스템.
+
+핵심 질문은 "불량을 맞힐 수 있나"가 아니라 **"오늘 추가로 전체의 1%를 더 볼 수 있다면 어느 1%를 볼 것이며, 그러면 불량의 몇 %를 잡게 되나"** 임.
+
+> **진행 상태 (2026-09-30)** — 설계는 끝났고 환경 구성과 변환 스크립트까지 됐음. **원본 데이터를 아직 받지 못해 Week 1부터가 멈춰 있음.** 아래 "1. 데이터 준비"를 사용자가 해 줘야 진행됨.
+
+---
+
+## 1. 데이터 준비 — 여기가 지금 막힌 곳
+
+Bosch Production Line Performance (Kaggle, 2016) 데이터를 씀. **이 데이터는 Kaggle 로그인과 대회 규정 동의가 있어야 받을 수 있어서 자동화할 수 없음.**
+
+### 1-1. 사용자가 직접 해야 하는 것 (약 2분)
+
+1. https://www.kaggle.com/competitions/bosch-production-line-performance/rules 에 로그인해 들어감
+2. **규정에 동의**함 (`I Understand and Accept`). 동의하지 않으면 API로도 다운로드가 막힘
+3. 같은 페이지의 **`Data Access and Use` 조항을 읽고** 아래를 확인함
+   - 데이터를 제3자에게 재배포해도 되는가 (대개 **금지**임)
+   - 비상업적 용도로 제한되는가
+   - 확인한 내용을 이 README 3절에 적어 둘 것
+4. https://www.kaggle.com/settings 에서 `API` → `Create New API Token` → `kaggle.json` 다운로드
+5. 파일을 `C:\Users\USER\.kaggle\kaggle.json` 에 둠
+
+### 1-2. 그 다음은 스크립트로 됨
+
+```bash
+.venv/Scripts/python.exe -m pip install kaggle
+.venv/Scripts/kaggle.exe competitions download -c bosch-production-line-performance \
+    -f train_numeric.csv -f train_date.csv -p data/raw
+# 압축을 풀고 나서
+.venv/Scripts/python.exe src/ingest.py
+```
+
+`src/ingest.py` 가 원본 행 수와 변환본 행 수를 맞춰 보고, 안 맞으면 0이 아닌 코드로 끝냄. 이게 **Week 0 관문**임.
+
+---
+
+## 2. 지금까지 된 것 / 안 된 것
+
+| | 상태 | 근거 |
+|---|---|---|
+| 설계 | 완료 | `설계 1차` 문서 (아래 4절) |
+| 실행 환경 | 완료 | 램 63.6GB / C 여유 258GB / i7-13650HX 14코어 20스레드 **[실측 2026-09-30]** |
+| 의존성 | 완료 | `requirements.txt` (실제 설치 버전으로 고정) |
+| CSV→parquet 변환 | **코드만 완료** | 합성 데이터 15개 테스트 통과. **실제 Bosch 데이터로는 못 돌려 봤음** |
+| 컬럼명 파싱 (`L{라인}_S{스테이션}_F{번호}`) | **코드만 완료** | 같음 |
+| 원본 데이터 | **없음** | 1절 참조 |
+| Week 1 이후 | 착수 안 함 | 데이터가 없어서 |
+
+### 검증을 어디까지 했나
+
+`tests/test_ingest.py` 15개가 통과함. 통과만으로는 믿을 수 없어서 **일부러 코드를 망가뜨려 테스트가 죽는지 확인**했음.
+
+| 일부러 넣은 오류 | 잡혔나 |
+|---|---|
+| `dtype` 고정 제거 (float32 다운캐스트·스키마 고정이 사라짐) | 예, 2개 실패 |
+| 행 수에서 헤더를 빼지 않음 (off-by-one) | 예, 4개 실패 |
+| 컬럼명 정규식에서 날짜(`D`)를 빼먹음 | 예, 1개 실패 |
+
+**이 테스트가 통과한 것은 "합성 데이터에서 변환 로직이 맞다"는 뜻일 뿐이고, "Bosch 원본이 잘 변환된다"는 뜻이 아님.** 원본을 받은 뒤 다시 확인함.
+
+특히 노린 것은 **"어떤 컬럼이 앞 조각에서는 전부 결측이고 뒤 조각에서는 값이 있는"** 경우임. Bosch는 결측이 80%를 넘어서 실제로 자주 일어나고, dtype을 미리 못 박지 않으면 조각별 스키마가 흔들려 변환이 깨지거나 값이 조용히 바뀜.
+
+---
+
+## 3. 데이터 라이선스
+
+**[미확인]** — 아직 확인하지 못했음. Kaggle 대회 규정 페이지가 로그인 뒤에 있어서 웹으로 읽으려다 실패했음. 1-1의 3번을 하고 나서 이 절을 채울 것.
+
+그 전까지 지키는 것:
+
+- `data/raw/`, `data/interim/` 은 `.gitignore`에 있음
+- `*.csv`, `*.parquet`도 `.gitignore`에 있음
+- **원본 데이터나 원본 행을 어느 저장소에도 커밋하지 않음.** 집계표와 그림만 공개함
+
+---
+
+## 4. 판단 근거는 어디에 있나
+
+이 저장소에는 코드만 있음. **왜 그렇게 정했는지는 비공개 기록 저장소에 있음** (`xnsl291/portfolio-private`).
+
+| 문서 | 내용 |
+|---|---|
+| `manufacturing-quality/handoff/2026-09-23-제조품질-인수인계.md` | 지금 상태, 막힌 곳, 읽을 순서 |
+| `manufacturing-quality/decisions/2026-09-22-제조품질-프로젝트-선정.md` | 왜 이 주제, 왜 Bosch. 버린 대안 12개 |
+| `manufacturing-quality/2026-09-22-설계-1차.md` | 6주 일정, 범위 확정, 미확정 항목 |
+
+---
+
+## 5. 구조
+
+```
+src/ingest.py        원본 CSV → parquet 변환 + 행 수 관문
+tests/               합성 Bosch 데이터로 하는 검증
+configs/             실험 설정 (아직 없음)
+data/raw/            원본 (gitignore)
+data/interim/        변환본 (gitignore)
+artifacts/           화면이 읽는 결과 파일 (아직 없음)
+reports/figures/     그림 (아직 없음)
+runs/                실험별 지표 (아직 없음)
+```
+
+실험 관리에 MLflow를 쓰지 않음. `configs/*.yaml` + `runs/{run_id}/metrics.json` + seed 고정으로 충분함.
+
+---
+
+## 6. 하지 않는 것
+
+범주형 2,140개 · 하이퍼파라미터 탐색 · XGBoost 병행 · MLflow · API 서버 · Deep Learning · LSTM · Transformer · LLM · Agent · RAG · Kafka · Kubernetes · MES · Digital Twin · 예지보전 · Microservice
+
+목적이 기술 스택 수를 늘리는 것이 아니라 **제조 데이터를 품질 의사결정 문제로 다루는 것**이기 때문임.
+
+---
+
+## 개정 이력
+
+| 날짜 | 고친 곳 | 원래 내용 | 바꾼 내용 | 왜 바꿨나 |
+|---|---|---|---|---|
+| 2026-09-30 | 최초 작성 | — | — | 환경 구성과 변환 스크립트가 됐고, 데이터를 못 받아 멈춘 지점이 생겼음. 무엇이 되고 무엇이 안 됐는지를 저장소 안에 적어 두지 않으면 다음에 열었을 때 변환 스크립트가 실제 데이터로 검증된 것으로 착각하게 됨 |
