@@ -160,11 +160,24 @@ def main() -> int:
     timings: dict[str, float] = {}
 
     # ---- Model 0 Dummy -------------------------------------------------
-    # 가장 흔한 쪽(양품)으로만 답하는 모델. 점수는 전부 같다.
-    print("\n[Model 0] Dummy", flush=True)
-    dummy = np.zeros(len(y), dtype="float64")
-    results["0_Dummy"] = summary(y[te], dummy[te])
-    results["0_Dummy"]["정확도(참고용)"] = float((y[te] == 0).mean())
+    # 가장 흔한 쪽(양품)으로만 답하는 모델. "전부 양품"이라는 **단정**이므로
+    # 점수에 임계값을 매기는 틀이 적용되지 않는다.
+    #
+    # 처음에는 점수를 전부 0으로 두고 summary() 를 그대로 썼는데, 전부 동점이라
+    # 분위수 임계값이 0이 되어 **전부 알람**으로 집계됐다(포착률 100%, Lift 1.0).
+    # 숫자 자체는 틀리지 않지만 Dummy 를 두는 목적을 못 보여준다. 목적은
+    # "정확도는 99.6%인데 불량은 하나도 못 잡는다"를 보이는 것이다.
+    print("\n[Model 0] Dummy — 전부 양품으로 단정", flush=True)
+    results["0_Dummy"] = {
+        "PR_AUC": float(y[te].mean()),  # 정보가 없는 모델의 PR-AUC 하한 = 불량률
+        "포착률@1%": 0.0,
+        "정밀도@1%": float("nan"),  # 알람이 0건이라 정의되지 않음
+        "Lift@1%": 0.0,
+        "실제검사율@1%": 0.0,
+        "MCC@1%": float("nan"),  # 한쪽만 예측
+        "정확도(참고용)": float((y[te] == 0).mean()),
+        "불량률": float(y[te].mean()),
+    }
 
     # ---- Model 1 Logistic (축약 입력) ---------------------------------
     print("[Model 1] Logistic — 공정 요약 입력 만드는 중...", flush=True)
