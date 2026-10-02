@@ -293,16 +293,54 @@ def test_time_structure_시작_종료_소요시간(tmp_path):
     np.testing.assert_allclose(per_part["duration"].to_numpy(), [6.0, 6.0, 6.0])
 
 
-def test_time_structure_공정순서를_날짜로_되찾음(tmp_path):
+def test_time_structure_공정순서를_상대시각으로_되찾음(tmp_path):
     visit = np.ones((5, 3), dtype=bool)
     _, dpath = write_pair(tmp_path, visit, np.zeros(5, dtype=int))
     dmap, _ = build_column_map(dpath)
 
-    _, order = time_structure(dpath, dmap)
+    _, order = time_structure(dpath, dmap, min_visits=1)
 
-    # 합성 데이터에서 날짜는 공정 순서대로 커지게 만들었음
+    # 합성 데이터에서 공정 j의 날짜 = 제품 시작 + j*3 이므로 순서가 그대로 나와야 함
     assert list(order["station_key"]) == ["L0_S0", "L0_S1", "L3_S36"]
     assert list(order["추정_공정순서"]) == [1, 2, 3]
+    np.testing.assert_allclose(order["상대시각_중앙값"].to_numpy(), [0.0, 3.0, 6.0])
+
+
+def test_time_structure_생산초기에만_돌던_공정이_앞순서로_잘못_올라오지_않음(tmp_path):
+    """2026-10-02 실제 데이터에서 실제로 틀렸던 것을 재현한 회귀 테스트.
+
+    공정별 **절대** 날짜 중앙값으로 순서를 정하면, 생산 초기에만 운영된
+    공정이 앞으로 튀어나옴. 실제로 L3_S31(제품의 3.29%만 지나고 전부
+    생산 초기)이 순서 1번, L3_S46(방문 제품 1명)이 2번으로 올라왔음.
+
+    여기서는 L0_S1을 **생산 초기 50개 제품만** 지나게 만든다. 제품 안에서
+    L0_S1은 두 번째 공정(상대시각 3)이지만, 절대 날짜 중앙값으로는
+    가장 작아서 1번으로 올라오게 되어 있다.
+    """
+    n = 1000
+    visit = np.ones((n, 3), dtype=bool)
+    visit[50:, 1] = False  # L0_S1 은 앞 50개 제품만 지남
+    offsets = np.arange(n, dtype=float) * 10.0  # 생산이 시간순으로 퍼져 있음
+
+    _, dpath = write_pair(
+        tmp_path, visit, np.zeros(n, dtype=int), start_offsets=offsets
+    )
+    dmap, _ = build_column_map(dpath)
+
+    _, order = time_structure(dpath, dmap, min_visits=100)
+    got = order.set_index("station_key")
+
+    # 절대 날짜로 줄 세우면 L0_S1 이 가장 작다 — 그래서 옛 방식은 여기서 틀렸다
+    assert got.loc["L0_S1", "절대날짜_중앙값"] < got.loc["L0_S0", "절대날짜_중앙값"]
+
+    # 상대 시각으로는 제대로 두 번째여야 한다
+    assert list(order["station_key"]) == ["L0_S0", "L0_S1", "L3_S36"]
+    assert got.loc["L0_S1", "추정_공정순서"] == 2
+
+    # 표본이 적은 공정은 순서를 그대로 믿지 말라고 표시돼야 한다
+    assert got.loc["L0_S1", "방문제품수"] == 50
+    assert got.loc["L0_S1", "순서_신뢰"] == "낮음(표본 적음)"
+    assert got.loc["L0_S0", "순서_신뢰"] == "보통"
 
 
 ####################################################################

@@ -186,36 +186,70 @@ def path_table(
 #
 # 역할  시간 기반 분할이 가능한지 판정하고, 컬럼명 순서가 실제 공정
 #       순서와 같은지 확인한다. 둘 다 Week 1 Gate 질문이다.
-# 방식  날짜 컬럼 전체에서 행 방향 최소·최대를 취한다. 날짜 값은 절대
-#       시각이 아니라 상대 단위라서, 단위를 해석하지 않고 순서만 쓴다.
-#       공정 순서는 공정별 날짜 중앙값을 정렬해 추정한다.
+#
+# 공정 순서를 "절대 날짜 중앙값"으로 구하면 안 되는 이유
+#   2026-10-02 실제 데이터에서 그렇게 했다가 틀렸음. 공정별 전체 날짜
+#   중앙값을 쓰면 **그 공정을 지난 제품이 언제 생산됐나**가 순서로
+#   잘못 읽힌다. 드물게 운영된 공정이 앞으로 튀어나온다.
+#     L3_S31 — 제품의 3.29%만 지나고 그 제품이 전부 생산 초기(날짜
+#              24~179)에 몰려 있어 순서 1번으로 올라왔음
+#     L3_S46 — 방문 제품이 단 1명인데 순서 2번으로 올라왔음
+#   둘 다 지난 38,957명만 보면 L3_S31과 L3_S29의 날짜 중앙값이 똑같이
+#   112.1이었음. 순서 차이가 아니라 생산 시기였다.
+#
+# 그래서 바꾼 방식
+#   제품 안에서의 **상대 시각**을 쓴다. 공정 날짜에서 그 제품 자신의
+#   시작 시각을 뺀 값의 중앙값으로 순서를 정한다. 그러면 생산 시기가
+#   상쇄되고 "제품이 이 공정을 자기 여정의 몇 번째쯤에 지나는가"만
+#   남는다. 방문 제품 수도 같이 내서, 표본이 적은 공정의 순서를
+#   그대로 믿지 않게 한다.
+#   날짜 컬럼을 두 번 읽는다(시작 시각을 먼저 알아야 하므로).
 ####################################################################
 def time_structure(
-    date_parquet: Path, column_map: pd.DataFrame
+    date_parquet: Path, column_map: pd.DataFrame, min_visits: int = 1000
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    per_station_median = {}
+    groups = list(column_map.groupby("station_key", sort=True))
+
+    # 1차 통과 — 제품별 시작·종료
     start = None
     end = None
-    for station_key, group in column_map.groupby("station_key", sort=True):
+    for _, group in groups:
         block = pq.read_table(date_parquet, columns=group["column"].tolist()).to_pandas()
         s = block.min(axis=1)
         e = block.max(axis=1)
         start = s if start is None else np.fmin(start, s)
         end = e if end is None else np.fmax(end, e)
-        per_station_median[station_key] = float(block.stack().median()) if block.notna().any().any() else float("nan")
         del block
 
     per_part = pd.DataFrame({"start": start, "end": end})
     per_part["duration"] = per_part["end"] - per_part["start"]
 
+    # 2차 통과 — 공정별 상대 시각(제품 시작 기준)
+    rows = []
+    for station_key, group in groups:
+        block = pq.read_table(date_parquet, columns=group["column"].tolist()).to_pandas()
+        station_min = block.min(axis=1)
+        visited = station_min.notna()
+        offset = (station_min - start)[visited]
+        rows.append(
+            {
+                "station_key": station_key,
+                "방문제품수": int(visited.sum()),
+                "방문율": float(visited.mean()),
+                "상대시각_중앙값": float(offset.median()) if len(offset) else float("nan"),
+                "절대날짜_중앙값": float(station_min[visited].median()) if len(offset) else float("nan"),
+            }
+        )
+        del block
+
     order = (
-        pd.Series(per_station_median, name="날짜_중앙값")
-        .rename_axis("station_key")
-        .reset_index()
-        .sort_values("날짜_중앙값")
+        pd.DataFrame(rows)
+        .sort_values("상대시각_중앙값", na_position="last")
         .reset_index(drop=True)
     )
     order["추정_공정순서"] = order.index + 1
+    # 표본이 적은 공정은 순서를 그대로 믿지 말라고 표시한다
+    order["순서_신뢰"] = np.where(order["방문제품수"] >= min_visits, "보통", "낮음(표본 적음)")
     return per_part, order
 
 

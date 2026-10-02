@@ -16,3 +16,8 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 .env
+
+# 처리 성능 측정용 합성 데이터 (실제 데이터와 섞이지 않게 분리)
+data/_bench/
+reports/_bench/
+runs/scale_bench.json
