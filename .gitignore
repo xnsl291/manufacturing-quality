@@ -21,3 +21,6 @@ __pycache__/
 data/_bench/
 reports/_bench/
 runs/scale_bench.json
+
+# 중단된 실험 로그는 커밋하지 않음
+runs/*.log
