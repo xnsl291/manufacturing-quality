@@ -5,10 +5,11 @@ data/interim/
 *.parquet
 *.feather
 
-# 산출물 중 용량이 큰 것
+# 산출물 중 용량이 큰 것 — 코드로 다시 만들 수 있는 것은 커밋하지 않음
 artifacts/*.parquet
-runs/*/model.txt
-runs/*/*.pkl
+runs/**/model*.txt
+runs/**/*.pkl
+runs/**/*.npy
 
 # 환경
 .venv/
