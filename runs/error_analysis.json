@@ -1,0 +1,18 @@
+{
+  "검사율": 0.01,
+  "집단크기": {
+    "TP_잡음": 111,
+    "FN_놓침": 853,
+    "FP_헛수고": 2257,
+    "TN_정상": 233529
+  },
+  "FN_대_TP_비": {
+    "visited_station_count": 1.083,
+    "visited_line_count": 1.0,
+    "measurement_count": 1.073,
+    "missing_ratio": 0.984,
+    "duration": 1.112,
+    "start_time": 1.061,
+    "모델점수": 0.026
+  }
+}
