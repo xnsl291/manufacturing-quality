@@ -1,4 +1,6 @@
 # 2026-09-30 실제 설치된 버전으로 고정함. 갱신 시 pip freeze로 다시 박을 것
+# 2026-10-19 pytest(테스트 실행)·psutil(tools/bench_scale.py)을 더함. 새 폴더 재현 때
+#   이 파일만으로는 README 1-2절 마지막 줄(pytest)이 돌지 않아 빠진 것을 확인함
 cloudpickle==3.1.2
 contourpy==1.4.0
 cycler==0.12.1
@@ -14,7 +16,9 @@ packaging==26.3
 pandas==3.0.6
 pillow==12.3.0
 pyarrow==25.0.1
+psutil==7.2.2
 pyparsing==3.3.3
+pytest==9.1.1
 python-dateutil==2.9.0.post0
 PyYAML==6.0.3
 scikit-learn==1.9.1
