@@ -11,6 +11,9 @@ data/interim/
 #   제품 단위 표는 애초에 만들지 않음 (src/error_analysis.py 참조)
 !reports/T*.csv
 
+# 위험 모니터(2번 페이지) 캡처는 제품 단위 값이 보여 공개하지 않음 (재배포 금지)
+reports/figures/screen_2*
+
 # 산출물 중 용량이 큰 것 — 코드로 다시 만들 수 있는 것은 커밋하지 않음
 artifacts/*.parquet
 runs/**/model*.txt
