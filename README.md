@@ -44,6 +44,8 @@ cd ../..
 .venv/Scripts/python.exe src/early_prediction.py   # W3  조기예측 곡선 (약 3분)
 .venv/Scripts/python.exe src/error_analysis.py     # W3  오탐·미탐 집계
 .venv/Scripts/python.exe -W ignore src/explain.py  # W4  공정 기여도 + ablation (약 3분)
+.venv/Scripts/python.exe tools/diagnose_week2.py   # 부풀림 그림용 무작위 분할 진단
+.venv/Scripts/python.exe tools/where_is_signal.py  # 부풀림 그림용 '둘 다' 조건
 .venv/Scripts/python.exe src/build_artifacts.py    # W5  그림용 집계표 3개 + 화면용 로컬 파일 (약 15초)
 .venv/Scripts/python.exe src/figures.py            # W5  그림 11장 (집계표만 읽음)
 .venv/Scripts/python.exe -m pytest tests/          # 테스트 107개
