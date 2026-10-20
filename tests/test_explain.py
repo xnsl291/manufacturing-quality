@@ -197,21 +197,17 @@ def test_ablation_첫_조건이_기준선이_아니면_멈춤():
         ablation_table(X, y, tr, va, te, [("A만 제거", ["L0_S0"])])
 
 
-def test_compute_shap_모양이_다르면_멈춤(monkeypatch):
-    """shap 이 [음성, 양성] 목록을 돌려주는 경우(버전·모델 형식이 바뀔 때)
-    조용히 엉뚱한 쪽을 쓰지 말고 멈춰야 한다."""
+def test_compute_shap_모양이_다르면_멈춤():
+    """LightGBM 이 기준값 열 없이 돌려주거나(버전·모델 형식이 바뀔 때)
+    열 수가 달라지면 조용히 한 칸 밀린 기여도를 쓰지 말고 멈춰야 한다."""
     X = pd.DataFrame(np.zeros((5, 2)), columns=["L0_S0_F0", "start_time"])
 
-    class FakeExplainer:
-        def __init__(self, _):
-            pass
+    class FakeBooster:
+        def predict(self, X, pred_contrib=False):
+            return np.zeros(X.shape)  # 기준값 열이 빠진 모양 (5, 2)
 
-        def shap_values(self, X):
-            return [np.zeros(X.shape), np.ones(X.shape)]  # 목록 → (2, 5, 2)
-
-    monkeypatch.setattr("src.explain.shap.TreeExplainer", FakeExplainer)
     with pytest.raises(ValueError, match="SHAP 모양"):
-        compute_shap(None, X)
+        compute_shap(FakeBooster(), X)
 
 
 ####################################################################

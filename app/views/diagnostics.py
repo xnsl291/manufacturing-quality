@@ -21,7 +21,7 @@ require(
     "where_is_signal.json", "explain.json",
 )
 # 주의 문구는 explain.py 가 남긴 실행 요약에서 읽음. src.explain 을 import 하면
-# 문구 하나 때문에 shap·lightgbm 까지 불러와 화면이 늦게 뜸
+# 문구 하나 때문에 lightgbm 까지 불러와 화면이 늦게 뜸
 
 st.subheader("모델 3종 비교 — 시험 구간")
 st.dataframe(table("T_모델비교", index_col=0), width="stretch")

@@ -38,7 +38,6 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
-import shap
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.ingest import parse_column  # noqa: E402
@@ -149,22 +148,23 @@ def drop_stations(feature_names: list[str], stations: list[str]) -> list[str]:
 ####################################################################
 # compute_shap — 입력값별 SHAP 기여도
 #
-# 처음에는 "shap 버전에 따라 [음성, 양성] 목록으로 돌려준다"는 경고를 보고
-# 목록이면 [1]을 고르는 분기를 넣었음. 2026-10-16 확인해 보니 lgb.Booster 를
-# 넘기면 shap 0.52 는 **배열 하나**(행 × 입력)를 돌려주고 그 분기는 한 번도
-# 실행되지 않았음(경고는 LightGBM 이진 분류면 무조건 찍힘). 변형 검사에서
-# [1]을 [0]으로 바꿔도 테스트가 통과한 것으로 드러났음.
-# 실행되지 않는 분기는 지우고, 대신 모양이 예상과 다르면 멈추게 했음.
-# 조용히 엉뚱한 쪽 기여도를 쓰는 것보다 멈추는 것이 낫다.
+# 2026-10-20부터 shap 라이브러리 대신 LightGBM 내장 계산(pred_contrib)을 씀.
+# 계획(ADR-006)은 처음부터 내장 계산이었는데 구현 때 shap.TreeExplainer 를
+# 썼음. 두 방식은 같은 알고리즘(TreeSHAP)이고, 실제 기여도 표본 30,964행
+# 전체에서 값을 비교해 같은 것을 확인한 뒤 바꿨음. 의존성이 5개 줄어듦.
+#
+# 출력은 (행, 입력 수 + 1)이고 마지막 열이 기준값(base)임. 그 열을 떼고
+# 돌려줌. 모양이 예상과 다르면(LightGBM 버전·모델 형식 변경) 멈춤 —
+# 조용히 열이 하나 밀린 기여도를 쓰는 것보다 멈추는 것이 낫다.
 ####################################################################
 def compute_shap(booster: lgb.Booster, X: pd.DataFrame) -> np.ndarray:
-    values = np.asarray(shap.TreeExplainer(booster).shap_values(X))
-    if values.shape != X.shape:
+    values = np.asarray(booster.predict(X, pred_contrib=True))
+    if values.shape != (X.shape[0], X.shape[1] + 1):
         raise ValueError(
-            f"SHAP 모양 {values.shape} 이 입력 {X.shape} 과 다름. "
-            "shap 버전이나 모델 형식이 바뀌었는지 확인할 것"
+            f"SHAP 모양 {values.shape} 이 입력 {X.shape} + 기준값 열과 다름. "
+            "LightGBM 버전이나 모델 형식이 바뀌었는지 확인할 것"
         )
-    return values
+    return values[:, :-1]
 
 
 def fit_eval(X: pd.DataFrame, y: np.ndarray, tr, va, te) -> tuple[dict, int]:

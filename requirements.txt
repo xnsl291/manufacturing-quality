@@ -1,6 +1,8 @@
 # 2026-09-30 실제 설치된 버전으로 고정함. 갱신 시 pip freeze로 다시 박을 것
 # 2026-10-19 pytest(테스트 실행)·psutil(tools/bench_scale.py)을 더함. 새 폴더 재현 때
 #   이 파일만으로는 README 1-2절 마지막 줄(pytest)이 돌지 않아 빠진 것을 확인함
+# 2026-10-20 shap 과 shap 만 쓰던 numba·llvmlite·slicer·tqdm 을 뺌. 기여도는 LightGBM
+#   내장 계산(pred_contrib)으로 바꿨음(ADR-006)
 cloudpickle==3.1.2
 contourpy==1.4.0
 cycler==0.12.1
@@ -8,9 +10,7 @@ fonttools==4.66.1
 joblib==1.6.0
 kiwisolver==1.5.1
 lightgbm==4.7.0
-llvmlite==0.49.0
 matplotlib==3.11.2
-numba==0.67.0
 numpy==2.5.3
 packaging==26.3
 pandas==3.0.6
@@ -23,9 +23,6 @@ python-dateutil==2.9.0.post0
 PyYAML==6.0.3
 scikit-learn==1.9.1
 scipy==1.18.1
-shap==0.52.0
-slicer==0.0.8
 streamlit==1.64.0
 threadpoolctl==3.7.0
-tqdm==4.70.1
 tzdata==2026.4
