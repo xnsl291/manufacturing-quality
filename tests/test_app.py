@@ -70,6 +70,25 @@ def test_diagnostics_renders():
     assert len(at.dataframe) >= 5
 
 
+def test_diagnostics_shows_readable_units():
+    # 2026-10-29 표기 개선: 비율은 %, Lift 는 배로 읽히게 바꿨다. 소수 그대로 두면
+    # 보는 사람이 0.1151 을 머릿속에서 11.5% 로 환산해야 한다
+    at = run("diagnostics.py")
+    assert not at.exception
+    comp = at.dataframe[0].value
+    assert comp.loc["2_LightGBM", "포착률@1%"] == "11.5%"
+    assert comp.loc["2_LightGBM", "무작위 대비@1%"] == "11.5배"
+    # 누설 포함 행은 지우지 않고 남긴다 — 배제 대상이라는 것 자체가 보여 줄 내용임
+    assert any(str(i).startswith("X_") for i in comp.index)
+    # 기여도 표의 열 이름은 코드 이름이 아니라 화면용 한국어여야 함
+    contrib = at.dataframe[1].value
+    assert "공정" in contrib.columns
+    assert "세 방식 중 가장 낮은 순위" in contrib.columns
+    assert "station_key" not in contrib.columns
+    # 시기별 포착률은 표와 막대를 같이 둔다 (표 2 의 비중과 헷갈리지 않게)
+    assert len(at.get("vega_lite_chart")) == 1
+
+
 def test_risk_monitor_without_artifact_shows_guide(tmp_path, monkeypatch):
     monkeypatch.setattr(common, "ARTIFACT", tmp_path / "없음.parquet")
     at = run("risk_monitor.py")

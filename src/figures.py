@@ -42,6 +42,9 @@ RUNS = ROOT / "runs"
 LINE_COLORS = {0: "#4C72B0", 1: "#DD8452", 2: "#55A868", 3: "#C44E52"}
 MAIN = "#1f4e79"
 GREY = "#8c8c8c"
+# 선택한 지점을 가리키는 색. 빨강은 "나쁜 결과"에만 쓰고,
+# "여기를 보라"는 뜻은 색을 나눠 둔다 (2026-10-29 화면 시안)
+PICK = "#0e8f8f"
 
 
 def _set_korean_font() -> None:
@@ -141,9 +144,12 @@ def capture_curve(curve: pd.DataFrame, highlight: float | None = 0.01) -> plt.Fi
     xs = np.geomspace(x_min, x_max, 100)
     ax.plot(xs * 100, xs * 100, ls="--", color=GREY, label="무작위 표본검사 (검사율 = 포착률)")
     styles = {"LightGBM": dict(color=MAIN, lw=2.2), "Logistic": dict(color="#DD8452", lw=1.4, ls="-.")}
+    # 범례는 모델 이름이 아니라 역할을 앞에 둔다. 이 화면의 주인공은 모델이 아니라
+    # "검사 물량을 얼마로 정할까" 라는 판단이다
+    labels = {"LightGBM": "우리 모델 (LightGBM) 포착률", "Logistic": "비교 모델 (Logistic) 포착률"}
     for name, g in curve.groupby("모델", sort=False):
-        ax.plot(g["실제_검사율"] * 100, g["포착률"] * 100, label=f"{name} 포착률",
-                **styles.get(name, {}))
+        ax.plot(g["실제_검사율"] * 100, g["포착률"] * 100,
+                label=labels.get(name, f"{name} 포착률"), **styles.get(name, {}))
     ax.set_xscale("log")
     ax.xaxis.set_major_formatter(PLAIN)
     ax.set_xlabel("검사 물량 — 전체 생산품 중 추가로 보는 비율 (%, 로그 축)")
@@ -158,13 +164,13 @@ def capture_curve(curve: pd.DataFrame, highlight: float | None = 0.01) -> plt.Fi
 
     if highlight is not None and len(main):
         row = main.iloc[(main["목표_검사율"] - highlight).abs().argmin()]
-        ax.scatter([row["실제_검사율"] * 100], [row["포착률"] * 100], color="#C44E52", zorder=5)
+        ax.scatter([row["실제_검사율"] * 100], [row["포착률"] * 100], color=PICK, zorder=5)
         ax.annotate(
             f"{row['실제_검사율']:.1%} 검사 → 불량 {row['포착률']:.1%} 포착\n"
             f"({int(row['포착_불량'])}건, 무작위의 {row['Lift']:.1f}배)",
             (row["실제_검사율"] * 100, row["포착률"] * 100),
             xytext=(12, -38), textcoords="offset points", fontsize=9,
-            arrowprops=dict(arrowstyle="-", color="#C44E52"),
+            arrowprops=dict(arrowstyle="-", color=PICK),
         )
     ax.legend(loc="upper left", fontsize=9)
     ax.set_title("검사 물량 대비 불량 포착률 — 시험 구간(가장 늦은 20%)")
@@ -331,7 +337,7 @@ def f4_start_time(hist: pd.DataFrame) -> plt.Figure:
         x = hist[col].iloc[0]
         ax.axvline(x, color="k", ls=":")
         ax.text(x, ax.get_ylim()[1] * 0.95, f" {name}", fontsize=9)
-    ax.set_title("F4 생산 기간과 불량률 — 기간마다 공정 상태가 다름 (시간 분할의 근거)")
+    ax.set_title("생산 기간과 불량률 — 기간마다 공정 상태가 다름 (시간 분할의 근거)")
     fig.tight_layout()
     return fig
 
