@@ -20,12 +20,25 @@ curve = table("T_포착률곡선")
 split = table("T_구간별불량률", index_col=0)
 main = curve[curve["모델"] == "LightGBM"].reset_index(drop=True)
 
+# 눈금은 운영에서 실제로 고를 만한 7칸만 보여 줌. 곡선 표의 65칸을 그대로 쓰면
+#   ① 0.500% 와 0.504% 가 둘 다 "0.50%" 로 보여 같은 라벨이 두 칸 연속 나왔고
+#   ② 0.00944 처럼 뜻을 읽을 수 없는 값에 손잡이가 멈췄음
+# 후보는 곡선 표에 그대로 들어 있는 값만 씀 (없는 값을 고르면 KPI 조회가 비어 버림)
+TICKS = (0.001, 0.005, 0.01, 0.03, 0.05, 0.10, 0.20)
 rates = main["목표_검사율"].tolist()
+options = [r for r in rates if round(r, 5) in TICKS] or rates
+
+
+def tick_label(r: float) -> str:
+    """0.001 → '0.1%', 0.01 → '1%'. 끝자리 0 을 떼어 눈금을 읽기 쉽게 함"""
+    return f"{r * 100:.2f}".rstrip("0").rstrip(".") + "%"
+
+
 rate = st.select_slider(
     "검사 물량 — 전체 생산품 중 추가로 확인할 비율",
-    options=rates,
-    value=min(rates, key=lambda r: abs(r - 0.01)),
-    format_func=lambda r: f"{r:.2%}",
+    options=options,
+    value=min(options, key=lambda r: abs(r - 0.01)),
+    format_func=tick_label,
 )
 row = main.loc[main["목표_검사율"] == rate].iloc[0]
 test = split.loc["test"]
