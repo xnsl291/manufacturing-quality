@@ -291,3 +291,14 @@ def test_build_steps_follow_readme_order():
     readme_order = re.findall(r"^\.venv/Scripts/python\.exe (?:-W ignore )?(" + script + ")", readme, re.M)
     assert len(shown) == 10
     assert shown == [m for m in readme_order if m in shown]
+
+
+def test_risk_monitor_snaps_handoff_to_tick(tmp_path, monkeypatch):
+    # 넘겨받은 값이 눈금에 없으면 select_slider 가 조용히 첫 칸(0.1%)으로 돌아감.
+    # 가장 가까운 눈금으로 맞춰야 1번에서 본 물량과 같은 물량이 열림
+    path = tmp_path / "parts.parquet"
+    fake_parts(path)
+    monkeypatch.setattr(common, "ARTIFACT", path)
+    at = run("risk_monitor.py", local_ok=True, handoff_rate=0.0501)
+    assert not at.exception
+    assert at.select_slider[0].value == 0.05
