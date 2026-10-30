@@ -12,9 +12,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import re
+import tomllib
+
 import numpy as np
 import pandas as pd
 import pytest
+from streamlit import config as st_config
 from streamlit.testing.v1 import AppTest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,12 +26,25 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "app"))
 import common  # noqa: E402
 
-PAGES = ROOT / "app" / "views"
 REAL_ARTIFACT = common.ARTIFACT
+CONFIG = ROOT / "app" / ".streamlit" / "config.toml"
 
 
-def run(page: str) -> AppTest:
-    return AppTest.from_file(str(PAGES / page), default_timeout=180).run()
+@pytest.fixture(autouse=True)
+def app_config():
+    # AppTest 는 app/.streamlit/config.toml 을 읽지 않음. 실제 실행과 같은 값을 넣어 2번 페이지의
+    # 설정 확인 장치를 통과시킴 (값 자체는 test_config_keeps_page2_local 이 파일에서 확인함)
+    for k, v in (("server.address", "localhost"), ("client.disableDataExport", True)):
+        st_config.set_option(k, v)
+    yield
+
+
+def run(page: str, **state) -> AppTest:
+    # 페이지끼리 링크(st.page_link·switch_page)가 있어 메뉴를 등록하는 main.py 를 거쳐 띄움
+    at = AppTest.from_file(str(ROOT / "app" / "main.py"), default_timeout=180).run()
+    for k, v in state.items():
+        at.session_state[k] = v
+    return at.switch_page(f"views/{page}").run()
 
 
 def fake_parts(path: Path, n: int = 1000) -> None:
@@ -112,15 +129,176 @@ def test_risk_monitor_with_artifact_lists_top_rate(tmp_path, monkeypatch):
     path = tmp_path / "parts.parquet"
     fake_parts(path)
     monkeypatch.setattr(common, "ARTIFACT", path)
-    at = run("risk_monitor.py")
+    at = run("risk_monitor.py", local_ok=True)
     assert not at.exception
     assert at.metric[0].value == "10대"  # 1000대의 기본 1%
     assert len(at.dataframe) == 1
 
 
 @pytest.mark.skipif(not REAL_ARTIFACT.exists(), reason="로컬 산출물이 있는 PC 에서만 확인 가능")
-def test_risk_monitor_matches_overview_at_one_percent():
-    # 같은 1% 에서 페이지 1(집계표)과 페이지 2(제품 단위)가 같은 포착률을 내야 함
+@pytest.mark.parametrize("rate", common.TICKS)
+def test_risk_monitor_matches_overview_at_every_tick(rate):
+    # 1번에서 정한 물량을 2번으로 넘기므로(화면 시안 B1) 눈금 일곱 곳 모두에서
+    # 페이지 1(집계표)과 페이지 2(제품 단위)의 검사 대수·포착률이 같아야 함.
+    # 2026-10-30 전에는 1% 한 곳만 확인했음
     overview = run("overview.py")
-    monitor = run("risk_monitor.py")
-    assert overview.metric[3].value == monitor.metric[2].value
+    overview.select_slider[0].set_value(rate).run()
+    monitor = run("risk_monitor.py", local_ok=True, handoff_rate=rate)
+    assert not overview.exception and not monitor.exception
+    assert overview.metric[2].value == monitor.metric[0].value  # 검사 대수
+    assert overview.metric[3].value == monitor.metric[2].value  # 포착률
+
+
+def test_start_page_shows_headline():
+    # 주소 / 로 들어온 사람이 처음 보는 화면. 대표 메시지가 1번과 같은 숫자여야 함
+    at = run("start.py")
+    assert not at.exception
+    assert "11.5%" in at.title[0].value
+    assert any("11.5배" in (m.proto.delta or "") for m in at.metric)
+
+
+def test_missing_table_offers_build_guide(tmp_path, monkeypatch):
+    # 집계표가 없으면 빠진 파일마다 오류 띠 + 만드는 법 버튼만 두고 나머지는 그리지 않음
+    monkeypatch.setattr(common.figures, "REPORTS", tmp_path)
+    at = run("overview.py")
+    assert not at.exception
+    assert len(at.error) == 3
+    assert any(b.label == "집계표 만드는 법 보기" for b in at.button)
+    assert len(at.select_slider) == 0
+
+
+def test_risk_monitor_asks_before_showing_parts(tmp_path, monkeypatch):
+    # 캡처 금지 확인 전에는 제품 값(KPI·목록)을 하나도 그리지 않음
+    path = tmp_path / "parts.parquet"
+    fake_parts(path)
+    monkeypatch.setattr(common, "ARTIFACT", path)
+    at = run("risk_monitor.py")
+    assert not at.exception
+    assert len(at.dataframe) == 0
+    assert len(at.metric) == 0
+
+
+def test_risk_monitor_broken_file_shows_guide(tmp_path, monkeypatch):
+    # 깨진 파일이면 traceback 대신 오류 띠와 안내를 띄움 (화면 시안 D6)
+    path = tmp_path / "parts.parquet"
+    path.write_bytes(b"not a parquet file")
+    monkeypatch.setattr(common, "ARTIFACT", path)
+    at = run("risk_monitor.py", local_ok=True)
+    assert not at.exception
+    assert any("읽을 수 없음" in e.value for e in at.error)
+    assert len(at.dataframe) == 0
+
+
+def test_risk_monitor_takes_rate_from_overview(tmp_path, monkeypatch):
+    # 1번에서 넘긴 물량이 2번 슬라이더의 시작값이 됨 (화면 시안 B1)
+    path = tmp_path / "parts.parquet"
+    fake_parts(path)
+    monkeypatch.setattr(common, "ARTIFACT", path)
+    at = run("risk_monitor.py", local_ok=True, handoff_rate=0.05)
+    assert not at.exception
+    assert at.select_slider[0].value == 0.05
+    assert at.metric[0].value == "50대"
+
+
+def test_risk_monitor_keeps_rate_after_leaving(tmp_path, monkeypatch):
+    # 다른 페이지에 다녀와도 마지막 물량이 남아야 함. Streamlit 은 화면에 없던 위젯 값을
+    # 지우므로 persist_state 로 남김 (2026-10-30 브라우저 확인에서 1% 로 돌아가던 결함)
+    path = tmp_path / "parts.parquet"
+    fake_parts(path)
+    monkeypatch.setattr(common, "ARTIFACT", path)
+    at = run("risk_monitor.py", local_ok=True)
+    at.select_slider[0].set_value(0.05).run()
+    at.switch_page("views/overview.py").run()
+    at.switch_page("views/risk_monitor.py").run()
+    assert not at.exception
+    assert at.select_slider[0].value == 0.05
+
+
+def test_risk_monitor_slider_moves_after_start(tmp_path, monkeypatch):
+    # 넘겨받은 물량으로 시작한 뒤에도 사용자가 옮긴 값이 그대로 먹어야 함
+    # (시작값을 매번 덮어쓰면 슬라이더가 되돌아감)
+    path = tmp_path / "parts.parquet"
+    fake_parts(path)
+    monkeypatch.setattr(common, "ARTIFACT", path)
+    at = run("risk_monitor.py", local_ok=True, handoff_rate=0.05)
+    at.select_slider[0].set_value(0.10).run()
+    assert not at.exception
+    assert at.metric[0].value == "100대"
+
+
+@pytest.mark.parametrize("page", ["start.py", "overview.py", "risk_monitor.py", "diagnostics.py"])
+def test_every_page_shows_banner(page, tmp_path, monkeypatch):
+    # 명세 0절 4번: 모든 페이지 제목 아래 안내 문구. 2번은 파일이 없는 공개 저장소 상태로 봄
+    monkeypatch.setattr(common, "ARTIFACT", tmp_path / "없음.parquet")
+    at = run(page)
+    assert not at.exception
+    assert any(c.value == common.BANNER for c in at.caption)
+
+
+def test_start_page_without_tables_keeps_banner(tmp_path, monkeypatch):
+    # 집계표가 없어도 제목·안내 문구가 먼저 나오고, 그 아래 오류 띠가 쌓임
+    monkeypatch.setattr(common.figures, "REPORTS", tmp_path)
+    at = run("start.py")
+    assert not at.exception
+    assert any(c.value == common.BANNER for c in at.caption)
+    assert len(at.error) == 2
+
+
+def test_risk_monitor_keeps_warning_before_and_after_confirm(tmp_path, monkeypatch):
+    # 캡처·공유 금지 경고는 확인 전에도 후에도 머리에 남아야 함 (명세 0절 4번)
+    path = tmp_path / "parts.parquet"
+    fake_parts(path)
+    monkeypatch.setattr(common, "ARTIFACT", path)
+    for state in ({}, {"local_ok": True}):
+        at = run("risk_monitor.py", **state)
+        assert not at.exception
+        assert any("캡처·공유하지 말 것" in w.value for w in at.warning)
+
+
+def test_risk_monitor_refuses_without_local_config(tmp_path, monkeypatch):
+    # 설정 파일이 안 읽혀 모든 주소에서 접속을 받는 상태면 제품 값을 그리지 않음
+    path = tmp_path / "parts.parquet"
+    fake_parts(path)
+    monkeypatch.setattr(common, "ARTIFACT", path)
+    st_config.set_option("server.address", "0.0.0.0")
+    at = run("risk_monitor.py", local_ok=True)
+    assert not at.exception
+    assert len(at.dataframe) == 0
+    assert any("config.toml" in e.value for e in at.error)
+
+
+def test_config_keeps_page2_local():
+    # 2번 목록은 이 PC 에서만, 내려받기 없이. 설정이 main.py 옆에 있어야 실행 폴더와 상관없이 읽힘
+    cfg = tomllib.loads(CONFIG.read_text(encoding="utf-8"))
+    assert cfg["server"]["address"] == "localhost"
+    assert cfg["client"]["disableDataExport"] is True
+    assert cfg["theme"]["primaryColor"].lower() != "#ff4b4b"  # 기본 빨강은 '나쁜 결과' 색과 겹침
+
+
+def test_overview_ticks_match_monitor_ticks():
+    # 1번이 넘기는 값(곡선 표의 실수값을 반올림)이 2번 눈금에 그대로 있어야 함
+    curve = common.table("T_포착률곡선")
+    rates = curve.loc[curve["모델"] == "LightGBM", "목표_검사율"]
+    assert sorted({round(r, 5) for r in rates if round(r, 5) in common.TICKS}) == list(common.TICKS)
+
+
+def test_build_steps_follow_readme_order():
+    # 집계표 만드는 순서가 화면과 README 두 곳에 있음. 한쪽만 고치면 어긋나므로 순서를 대조함
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    script = r"(?:src|tools)/\w+\.py"
+    shown = re.findall(script, common.BUILD_STEPS)
+    # README 1-2절의 실행 명령 줄(.venv/Scripts/python.exe ...)만 순서대로 모음
+    readme_order = re.findall(r"^\.venv/Scripts/python\.exe (?:-W ignore )?(" + script + ")", readme, re.M)
+    assert len(shown) == 10
+    assert shown == [m for m in readme_order if m in shown]
+
+
+def test_risk_monitor_snaps_handoff_to_tick(tmp_path, monkeypatch):
+    # 넘겨받은 값이 눈금에 없으면 select_slider 가 조용히 첫 칸(0.1%)으로 돌아감.
+    # 가장 가까운 눈금으로 맞춰야 1번에서 본 물량과 같은 물량이 열림
+    path = tmp_path / "parts.parquet"
+    fake_parts(path)
+    monkeypatch.setattr(common, "ARTIFACT", path)
+    at = run("risk_monitor.py", local_ok=True, handoff_rate=0.0501)
+    assert not at.exception
+    assert at.select_slider[0].value == 0.05
